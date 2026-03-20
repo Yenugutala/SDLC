@@ -1,35 +1,90 @@
-"""Data Dictionary: Generate column descriptions for all layers."""
+"""Data Dictionary: Auto-generate column descriptions for all layers."""
 
 import json
 import os
+import re
 
 
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "profiling_output")
 
-# Human-readable descriptions for original columns
-COLUMN_DESCRIPTIONS = {
-    "patient_id": "Unique identifier for each patient in the healthcare system",
-    "first_name": "Patient's first/given name",
-    "last_name": "Patient's last/family name",
-    "dob": "Patient's date of birth (YYYY-MM-DD format)",
-    "gender": "Patient's gender (Male/Female)",
-    "blood_type": "Patient's blood type (A+, B-, O+, AB+, etc.)",
-    "phone": "Patient's contact phone number",
-    "address": "Patient's residential address",
-    "insurance_provider": "Name of the patient's health insurance provider",
-    "visit_id": "Unique identifier for each patient visit/encounter",
-    "visit_date": "Date of the patient visit (YYYY-MM-DD format)",
-    "department": "Medical department where the visit occurred",
-    "diagnosis": "Medical diagnosis recorded during the visit",
-    "doctor_name": "Name of the attending physician",
-    "treatment": "Treatment or procedure administered during the visit",
-    "bill_amount": "Total bill amount for the visit in USD",
-    "status": "Current status of the visit (Completed/In Progress)",
-}
+# Regex patterns to infer column descriptions from column names
+COLUMN_PATTERNS = [
+    (r"_id$", "Unique identifier for {entity}"),
+    (r"^id$", "Primary identifier"),
+    (r"first_name|fname", "First/given name"),
+    (r"last_name|lname|surname", "Last/family name"),
+    (r"^name$|_name$", "Name field for {entity}"),
+    (r"dob|date_of_birth|birth_date", "Date of birth (date format)"),
+    (r"_date$|^date_|^dt_", "Date field"),
+    (r"gender|sex", "Gender/sex classification"),
+    (r"blood_type", "Blood type classification (e.g., A+, B-, O+)"),
+    (r"phone|tel|mobile", "Phone/telephone contact number"),
+    (r"address|addr|street", "Physical/mailing address"),
+    (r"email", "Email address"),
+    (r"insurance|insurer", "Insurance provider or plan"),
+    (r"department|dept", "Department or organizational unit"),
+    (r"diagnosis|dx", "Medical diagnosis"),
+    (r"doctor|physician|provider", "Healthcare provider/physician name"),
+    (r"treatment|therapy|procedure", "Treatment or medical procedure"),
+    (r"bill|amount|cost|price|charge", "Monetary amount (numeric)"),
+    (r"status|state", "Current status indicator"),
+    (r"visit", "Visit/encounter information"),
+    (r"zip|postal", "ZIP/postal code"),
+    (r"city", "City name"),
+    (r"country", "Country name"),
+    (r"age", "Age (numeric)"),
+    (r"weight|height", "Physical measurement"),
+]
+
+
+def infer_description(col_name, data_type, stats):
+    """Generate a column description from its name, type, and profiling stats."""
+    parts = []
+
+    # Pattern match on column name
+    matched = False
+    for pattern, desc_template in COLUMN_PATTERNS:
+        if re.search(pattern, col_name, re.IGNORECASE):
+            entity = col_name.replace("_id", "").replace("_", " ").strip()
+            parts.append(desc_template.format(entity=entity or "record"))
+            matched = True
+            break
+
+    if not matched:
+        humanized = col_name.replace("_", " ").title()
+        parts.append(humanized)
+
+    # Enrich with data type info
+    if "float" in data_type or "int" in data_type:
+        if "min" in stats and "max" in stats and stats["min"] is not None:
+            parts.append(f"Range: {stats['min']}-{stats['max']}")
+            if "mean" in stats and stats["mean"] is not None:
+                parts.append(f"Avg: {stats['mean']}")
+
+    # Enrich with cardinality info
+    unique_count = stats.get("unique_count", 0)
+    row_count = stats.get("_row_count", 0)
+    if row_count > 0 and unique_count > 0:
+        if unique_count == row_count:
+            parts.append("Unique per row (likely identifier)")
+        elif unique_count <= 10:
+            samples = stats.get("sample_values", [])
+            parts.append(f"{unique_count} distinct values")
+            if samples:
+                parts.append(f"e.g., {', '.join(str(s) for s in samples[:3])}")
+        else:
+            parts.append(f"{unique_count} distinct values")
+
+    # Null info
+    null_pct = stats.get("null_pct", 0)
+    if null_pct > 0:
+        parts.append(f"{null_pct}% null")
+
+    return ". ".join(parts)
 
 
 def generate_data_dictionary():
-    """Generate a data dictionary combining profiling stats and descriptions."""
+    """Generate a data dictionary combining profiling stats and auto-inferred descriptions."""
 
     # Load profiling data
     profiles = {}
@@ -68,7 +123,10 @@ def generate_data_dictionary():
             }
             for col_name, col_stats in table_profile.get("columns", {}).items():
                 original_col = col_to_original.get(col_name, col_name)
-                description = COLUMN_DESCRIPTIONS.get(original_col, f"Derived column mapped from {original_col}")
+
+                # Auto-infer description from column name + stats
+                enriched_stats = {**col_stats, "_row_count": table_profile["row_count"]}
+                description = infer_description(original_col, col_stats.get("data_type", "unknown"), enriched_stats)
 
                 col_entry = {
                     "column_name": col_name,

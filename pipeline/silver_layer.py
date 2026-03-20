@@ -1,75 +1,98 @@
-"""Silver Layer: Transform bronze tables with obfuscated column names."""
+"""Silver Layer: Transform bronze tables with dynamically generated obfuscated column names."""
 
 import json
 import os
+import random
+import string
 import sqlite3
 import pandas as pd
+
+from pipeline.schema_utils import get_all_bronze_schemas, get_entity_name_from_bronze
 
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pipeline.db")
 MAPPINGS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mappings")
 
-# Obfuscated column mappings: original -> silver
-PATIENTS_COLUMN_MAP = {
-    "patient_id": "col_x1a",
-    "first_name": "fld_7b2",
-    "last_name": "fld_9c3",
-    "dob": "attr_d4e",
-    "gender": "flg_5f1",
-    "blood_type": "cod_8g2",
-    "phone": "val_2h7",
-    "address": "txt_3j9",
-    "insurance_provider": "ref_6k4",
-}
-
-VISITS_COLUMN_MAP = {
-    "visit_id": "col_y2b",
-    "patient_id": "col_x1a",
-    "visit_date": "dt_4m8",
-    "department": "cat_1n5",
-    "diagnosis": "txt_7p3",
-    "doctor_name": "ref_2q6",
-    "treatment": "txt_9r1",
-    "bill_amount": "num_3s7",
-    "status": "flg_8t2",
-}
-
-SILVER_PATIENTS_TABLE = "silver_tbl_a1"
-SILVER_VISITS_TABLE = "silver_tbl_b2"
+PREFIXES = ["col", "fld", "attr", "flg", "cod", "val", "txt", "ref", "dt", "num", "cat"]
 
 
-def transform_silver(db_path=None):
-    """Read bronze tables, rename columns, write as silver tables."""
+def generate_obfuscated_name(used_names):
+    """Generate a unique random obfuscated column name like 'col_x1a'."""
+    while True:
+        prefix = random.choice(PREFIXES)
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=3))
+        name = f"{prefix}_{suffix}"
+        if name not in used_names:
+            used_names.add(name)
+            return name
+
+
+def generate_silver_table_name(entity_name, used_names):
+    """Generate obfuscated silver table name like 'silver_tbl_a1'."""
+    while True:
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=2))
+        name = f"silver_tbl_{suffix}"
+        if name not in used_names:
+            used_names.add(name)
+            return name
+
+
+def build_column_map(columns, shared_names_map, used_names):
+    """Generate column mapping for one bronze table.
+
+    Columns that already appear in shared_names_map get the same obfuscated name
+    (preserving cross-table join keys like patient_id).
+    """
+    column_map = {}
+    for col in columns:
+        if col in shared_names_map:
+            column_map[col] = shared_names_map[col]
+        else:
+            obfuscated = generate_obfuscated_name(used_names)
+            column_map[col] = obfuscated
+            shared_names_map[col] = obfuscated
+    return column_map
+
+
+def transform_silver(db_path=None, seed=42):
+    """Read bronze tables, dynamically rename columns, write as silver tables."""
     db_path = db_path or DB_PATH
     os.makedirs(MAPPINGS_DIR, exist_ok=True)
+    random.seed(seed)
+
+    # Discover all bronze tables and their schemas
+    bronze_schemas = get_all_bronze_schemas(db_path)
 
     conn = sqlite3.connect(db_path)
 
-    # Transform patients
-    patients_df = pd.read_sql("SELECT * FROM bronze_patients", conn)
-    patients_silver = patients_df.rename(columns=PATIENTS_COLUMN_MAP)
-    patients_silver.to_sql(SILVER_PATIENTS_TABLE, conn, if_exists="replace", index=False)
+    used_col_names = set()
+    used_table_names = set()
+    shared_names_map = {}
+    all_mappings = {}
 
-    # Transform visits
-    visits_df = pd.read_sql("SELECT * FROM bronze_visits", conn)
-    visits_silver = visits_df.rename(columns=VISITS_COLUMN_MAP)
-    visits_silver.to_sql(SILVER_VISITS_TABLE, conn, if_exists="replace", index=False)
+    for bronze_table, columns in bronze_schemas.items():
+        entity = get_entity_name_from_bronze(bronze_table)
+        silver_table = generate_silver_table_name(entity, used_table_names)
+        column_map = build_column_map(columns, shared_names_map, used_col_names)
+
+        df = pd.read_sql(f"SELECT * FROM {bronze_table}", conn)
+        df_silver = df.rename(columns=column_map)
+        df_silver.to_sql(silver_table, conn, if_exists="replace", index=False)
+
+        mapping_key = f"{bronze_table}_to_{silver_table}"
+        all_mappings[mapping_key] = column_map
+
+        print(f"[Silver] Created {silver_table} from {bronze_table} ({len(columns)} columns)")
 
     conn.commit()
     conn.close()
 
-    # Save mappings for lineage tracking
-    mappings = {
-        "bronze_patients_to_silver_tbl_a1": PATIENTS_COLUMN_MAP,
-        "bronze_visits_to_silver_tbl_b2": VISITS_COLUMN_MAP,
-    }
     mapping_path = os.path.join(MAPPINGS_DIR, "bronze_to_silver.json")
     with open(mapping_path, "w") as f:
-        json.dump(mappings, f, indent=2)
+        json.dump(all_mappings, f, indent=2)
 
-    print(f"[Silver] Created {SILVER_PATIENTS_TABLE} and {SILVER_VISITS_TABLE}")
     print(f"[Silver] Column mappings saved to {mapping_path}")
-    return mappings
+    return all_mappings
 
 
 if __name__ == "__main__":

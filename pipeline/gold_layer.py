@@ -1,83 +1,88 @@
-"""Gold Layer: Create views on silver tables with different obfuscated names."""
+"""Gold Layer: Create views on silver tables with dynamically generated obfuscated names."""
 
 import json
 import os
+import random
+import string
 import sqlite3
+
+from pipeline.schema_utils import get_tables_by_prefix, get_column_names
 
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pipeline.db")
 MAPPINGS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mappings")
 
-# Gold column mappings: silver_col -> gold_col
-PATIENTS_GOLD_MAP = {
-    "col_x1a": "attr_m1",
-    "fld_7b2": "attr_m2",
-    "fld_9c3": "attr_m3",
-    "attr_d4e": "attr_m4",
-    "flg_5f1": "attr_m5",
-    "cod_8g2": "attr_m6",
-    "val_2h7": "attr_m7",
-    "txt_3j9": "attr_m8",
-    "ref_6k4": "attr_m9",
-}
-
-VISITS_GOLD_MAP = {
-    "col_y2b": "dim_n1",
-    "col_x1a": "dim_n2",
-    "dt_4m8": "dim_n3",
-    "cat_1n5": "dim_n4",
-    "txt_7p3": "dim_n5",
-    "ref_2q6": "dim_n6",
-    "txt_9r1": "dim_n7",
-    "num_3s7": "msr_n8",
-    "flg_8t2": "dim_n9",
-}
-
-GOLD_PATIENTS_VIEW = "gold_vw_p99"
-GOLD_VISITS_VIEW = "gold_vw_q88"
+GOLD_PREFIXES = ["attr", "dim", "msr", "fct", "key"]
 
 
-def create_gold_views(db_path=None):
-    """Create gold views on silver tables with renamed columns."""
+def generate_gold_view_name(used_names):
+    """Generate obfuscated gold view name like 'gold_vw_p99'."""
+    while True:
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=3))
+        name = f"gold_vw_{suffix}"
+        if name not in used_names:
+            used_names.add(name)
+            return name
+
+
+def generate_gold_column_name(used_names):
+    """Generate obfuscated gold column name like 'attr_m1'."""
+    while True:
+        prefix = random.choice(GOLD_PREFIXES)
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=2))
+        name = f"{prefix}_{suffix}"
+        if name not in used_names:
+            used_names.add(name)
+            return name
+
+
+def create_gold_views(db_path=None, seed=99):
+    """Create gold views on silver tables with dynamically generated column names."""
     db_path = db_path or DB_PATH
     os.makedirs(MAPPINGS_DIR, exist_ok=True)
+    random.seed(seed)
+
+    silver_tables = get_tables_by_prefix(db_path, "silver_")
 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Build patients view
-    patient_cols = ", ".join(
-        f"{silver} AS {gold}" for silver, gold in PATIENTS_GOLD_MAP.items()
-    )
-    cursor.execute(f"DROP VIEW IF EXISTS {GOLD_PATIENTS_VIEW}")
-    cursor.execute(
-        f"CREATE VIEW {GOLD_PATIENTS_VIEW} AS SELECT {patient_cols} FROM silver_tbl_a1"
-    )
+    used_view_names = set()
+    used_col_names = set()
+    shared_gold_map = {}
+    all_mappings = {}
 
-    # Build visits view
-    visit_cols = ", ".join(
-        f"{silver} AS {gold}" for silver, gold in VISITS_GOLD_MAP.items()
-    )
-    cursor.execute(f"DROP VIEW IF EXISTS {GOLD_VISITS_VIEW}")
-    cursor.execute(
-        f"CREATE VIEW {GOLD_VISITS_VIEW} AS SELECT {visit_cols} FROM silver_tbl_b2"
-    )
+    for silver_table in silver_tables:
+        silver_columns = get_column_names(db_path, silver_table)
+        gold_view = generate_gold_view_name(used_view_names)
+
+        gold_map = {}
+        for silver_col in silver_columns:
+            if silver_col in shared_gold_map:
+                gold_col = shared_gold_map[silver_col]
+            else:
+                gold_col = generate_gold_column_name(used_col_names)
+                shared_gold_map[silver_col] = gold_col
+            gold_map[silver_col] = gold_col
+
+        col_aliases = ", ".join(f"{s} AS {g}" for s, g in gold_map.items())
+        cursor.execute(f"DROP VIEW IF EXISTS {gold_view}")
+        cursor.execute(f"CREATE VIEW {gold_view} AS SELECT {col_aliases} FROM {silver_table}")
+
+        mapping_key = f"{silver_table}_to_{gold_view}"
+        all_mappings[mapping_key] = gold_map
+
+        print(f"[Gold] Created view {gold_view} from {silver_table} ({len(silver_columns)} columns)")
 
     conn.commit()
     conn.close()
 
-    # Save mappings for lineage tracking
-    mappings = {
-        "silver_tbl_a1_to_gold_vw_p99": PATIENTS_GOLD_MAP,
-        "silver_tbl_b2_to_gold_vw_q88": VISITS_GOLD_MAP,
-    }
     mapping_path = os.path.join(MAPPINGS_DIR, "silver_to_gold.json")
     with open(mapping_path, "w") as f:
-        json.dump(mappings, f, indent=2)
+        json.dump(all_mappings, f, indent=2)
 
-    print(f"[Gold] Created views {GOLD_PATIENTS_VIEW} and {GOLD_VISITS_VIEW}")
     print(f"[Gold] Column mappings saved to {mapping_path}")
-    return mappings
+    return all_mappings
 
 
 if __name__ == "__main__":

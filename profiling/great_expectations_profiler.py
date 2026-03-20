@@ -6,6 +6,8 @@ import sqlite3
 import pandas as pd
 import great_expectations as gx
 
+from pipeline.schema_utils import get_tables_by_prefix
+
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pipeline.db")
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "profiling_output")
@@ -46,9 +48,9 @@ def run_profiling(db_path=None):
     conn = sqlite3.connect(db_path)
 
     tables = {
-        "bronze": ["bronze_patients", "bronze_visits"],
-        "silver": ["silver_tbl_a1", "silver_tbl_b2"],
-        "gold": ["gold_vw_p99", "gold_vw_q88"],
+        "bronze": get_tables_by_prefix(db_path, "bronze_"),
+        "silver": get_tables_by_prefix(db_path, "silver_"),
+        "gold": get_tables_by_prefix(db_path, "gold_"),
     }
 
     all_profiles = {}
