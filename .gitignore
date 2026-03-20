@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.db
+chroma_db/
+profiling_output/
+mappings/
+.env

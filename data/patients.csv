@@ -1,0 +1,21 @@
+patient_id,first_name,last_name,dob,gender,blood_type,phone,address,insurance_provider
+P001,John,Smith,1985-03-15,Male,A+,555-0101,123 Oak St,BlueCross
+P002,Sarah,Johnson,1990-07-22,Female,B-,555-0102,456 Elm Ave,Aetna
+P003,Michael,Williams,1978-11-08,Male,O+,555-0103,789 Pine Rd,UnitedHealth
+P004,Emily,Brown,1995-01-30,Female,AB+,555-0104,321 Maple Dr,Cigna
+P005,David,Jones,1982-06-14,Male,A-,555-0105,654 Cedar Ln,BlueCross
+P006,Lisa,Garcia,1988-09-25,Female,B+,555-0106,987 Birch Ct,Aetna
+P007,Robert,Martinez,1972-04-03,Male,O-,555-0107,147 Walnut St,Humana
+P008,Jennifer,Davis,1993-12-19,Female,A+,555-0108,258 Spruce Ave,UnitedHealth
+P009,William,Rodriguez,1980-08-07,Male,AB-,555-0109,369 Ash Blvd,Cigna
+P010,Amanda,Wilson,1997-02-28,Female,O+,555-0110,741 Poplar Way,BlueCross
+P011,James,Anderson,1975-10-11,Male,B+,555-0111,852 Hickory Dr,Aetna
+P012,Michelle,Thomas,1991-05-16,Female,A-,555-0112,963 Willow Ln,Humana
+P013,Christopher,Taylor,1986-07-09,Male,O+,555-0113,174 Sycamore Ct,UnitedHealth
+P014,Jessica,Moore,1994-03-21,Female,AB+,555-0114,285 Chestnut St,Cigna
+P015,Daniel,Jackson,1979-11-30,Male,B-,555-0115,396 Magnolia Ave,BlueCross
+P016,Stephanie,White,1992-08-14,Female,A+,555-0116,507 Dogwood Rd,Aetna
+P017,Andrew,Harris,1983-01-25,Male,O-,555-0117,618 Redwood Dr,Humana
+P018,Nicole,Martin,1996-06-07,Female,B+,555-0118,729 Juniper Ln,UnitedHealth
+P019,Kevin,Thompson,1977-09-18,Male,AB-,555-0119,830 Cypress Ct,Cigna
+P020,Rachel,Garcia,1989-04-12,Female,A+,555-0120,941 Sequoia Way,BlueCross

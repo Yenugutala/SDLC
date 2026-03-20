@@ -1,0 +1,31 @@
+visit_id,patient_id,visit_date,department,diagnosis,doctor_name,treatment,bill_amount,status
+V001,P001,2024-01-10,Cardiology,Hypertension,Dr. Adams,Medication,250.00,Completed
+V002,P002,2024-01-12,Orthopedics,Fracture,Dr. Baker,Surgery,4500.00,Completed
+V003,P003,2024-01-15,Neurology,Migraine,Dr. Clark,Medication,180.00,Completed
+V004,P004,2024-01-18,Dermatology,Eczema,Dr. Davis,Topical Treatment,120.00,Completed
+V005,P005,2024-01-20,Cardiology,Arrhythmia,Dr. Adams,Monitoring,350.00,In Progress
+V006,P001,2024-02-05,Cardiology,Hypertension,Dr. Adams,Medication Adjustment,200.00,Completed
+V007,P006,2024-02-08,Gastroenterology,GERD,Dr. Evans,Medication,160.00,Completed
+V008,P007,2024-02-12,Orthopedics,Arthritis,Dr. Baker,Physical Therapy,300.00,In Progress
+V009,P008,2024-02-15,Pulmonology,Asthma,Dr. Foster,Inhaler Prescription,140.00,Completed
+V010,P009,2024-02-18,Neurology,Epilepsy,Dr. Clark,Medication,420.00,Completed
+V011,P010,2024-02-22,Dermatology,Psoriasis,Dr. Davis,Light Therapy,280.00,Completed
+V012,P002,2024-03-01,Orthopedics,Follow-up,Dr. Baker,Rehabilitation,200.00,Completed
+V013,P011,2024-03-05,Cardiology,Chest Pain,Dr. Adams,Diagnostic Tests,550.00,Completed
+V014,P012,2024-03-08,Gastroenterology,IBS,Dr. Evans,Diet Plan,130.00,Completed
+V015,P013,2024-03-12,Pulmonology,Bronchitis,Dr. Foster,Antibiotics,175.00,Completed
+V016,P014,2024-03-15,Neurology,Vertigo,Dr. Clark,Medication,190.00,In Progress
+V017,P015,2024-03-18,Cardiology,Hypertension,Dr. Adams,Medication,250.00,Completed
+V018,P003,2024-03-22,Neurology,Migraine,Dr. Clark,Preventive Medication,210.00,Completed
+V019,P016,2024-03-25,Dermatology,Acne,Dr. Davis,Topical Treatment,95.00,Completed
+V020,P017,2024-04-01,Orthopedics,Back Pain,Dr. Baker,Physical Therapy,320.00,In Progress
+V021,P018,2024-04-05,Gastroenterology,Gastritis,Dr. Evans,Medication,155.00,Completed
+V022,P019,2024-04-08,Pulmonology,Pneumonia,Dr. Foster,Antibiotics,380.00,Completed
+V023,P020,2024-04-12,Cardiology,Palpitations,Dr. Adams,Monitoring,300.00,Completed
+V024,P004,2024-04-15,Dermatology,Eczema Follow-up,Dr. Davis,Medication Adjustment,110.00,Completed
+V025,P005,2024-04-18,Cardiology,Arrhythmia Follow-up,Dr. Adams,Medication,275.00,Completed
+V026,P011,2024-04-22,Cardiology,Chest Pain Follow-up,Dr. Adams,Stress Test,600.00,Completed
+V027,P008,2024-04-25,Pulmonology,Asthma Check-up,Dr. Foster,Inhaler Refill,100.00,Completed
+V028,P013,2024-05-01,Pulmonology,Follow-up,Dr. Foster,Check-up,90.00,Completed
+V029,P006,2024-05-05,Gastroenterology,GERD Follow-up,Dr. Evans,Medication Adjustment,145.00,Completed
+V030,P015,2024-05-08,Cardiology,Blood Pressure Check,Dr. Adams,Routine Check,180.00,Completed
