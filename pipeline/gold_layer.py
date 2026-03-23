@@ -1,6 +1,5 @@
 """Gold Layer: Create views on silver tables with dynamically generated obfuscated names."""
 
-import json
 import os
 import random
 import string
@@ -10,7 +9,6 @@ from pipeline.schema_utils import get_tables_by_prefix, get_column_names
 
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pipeline.db")
-MAPPINGS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mappings")
 
 GOLD_PREFIXES = ["attr", "dim", "msr", "fct", "key"]
 
@@ -39,7 +37,6 @@ def generate_gold_column_name(used_names):
 def create_gold_views(db_path=None, seed=99):
     """Create gold views on silver tables with dynamically generated column names."""
     db_path = db_path or DB_PATH
-    os.makedirs(MAPPINGS_DIR, exist_ok=True)
     random.seed(seed)
 
     silver_tables = get_tables_by_prefix(db_path, "silver_")
@@ -77,11 +74,9 @@ def create_gold_views(db_path=None, seed=99):
     conn.commit()
     conn.close()
 
-    mapping_path = os.path.join(MAPPINGS_DIR, "silver_to_gold.json")
-    with open(mapping_path, "w") as f:
-        json.dump(all_mappings, f, indent=2)
-
-    print(f"[Gold] Column mappings saved to {mapping_path}")
+    # No lineage storage needed — VIEW SQL in sqlite_master already contains
+    # the full column mapping (SELECT silver_col AS gold_col FROM silver_table)
+    print(f"[Gold] Lineage available via VIEW definitions in sqlite_master")
     return all_mappings
 
 

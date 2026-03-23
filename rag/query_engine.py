@@ -46,11 +46,28 @@ def ask_claude(question, context_chunks):
         "and Gold (views with different obfuscated names). "
         "Use the provided context from the data dictionary, ontology, lineage, and code "
         "to answer questions accurately. When referring to obfuscated column names, "
-        "always explain what the original/meaningful column name is."
+        "always explain what the original/meaningful column name is.\n\n"
+        "IMPORTANT RULES:\n"
+        "1. You have access to column metadata (column names, data types, descriptions, "
+        "sample values, null percentages, unique counts) from the data dictionary. "
+        "Use this metadata to give accurate answers.\n"
+        "2. When the user asks about analysis or dashboards, first identify which columns "
+        "in the existing tables COULD be relevant based on their names and metadata. "
+        "Clearly state: 'I can see that column X exists in table Y.' "
+        "Then explain: 'However, we don't know the exact values it contains. "
+        "If it contains [needed info], you can use the following approach... "
+        "Otherwise, you would need to populate this information from the source.'\n"
+        "3. If the user asks about data or fields that do NOT exist in the pipeline, "
+        "clearly state that the data is not available and list what columns/tables ARE available.\n"
+        "4. Always be explicit about what you KNOW (column exists, data type, sample values) "
+        "vs what you are ASSUMING (the column values contain the needed information).\n"
+        "5. When a column might be relevant but its values may not be sufficient, suggest "
+        "TWO paths: (a) how to use it IF the values are suitable, and (b) what to do "
+        "if the values are not sufficient (e.g., add new columns or get data from source)."
     )
 
     message = client.messages.create(
-        model="claude-sonnet-4-6-20250514",
+        model="claude-3-haiku-20240307",
         max_tokens=1024,
         system=system_prompt,
         messages=[

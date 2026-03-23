@@ -172,9 +172,22 @@ def ingest_code(client):
     print(f"[VectorStore] Ingested {len(documents)} code chunks")
 
 
+def reset_collections(client):
+    """Delete and recreate all collections to remove stale data."""
+    for name in ["data_dictionary", "ontology", "lineage", "code"]:
+        try:
+            client.delete_collection(name)
+        except Exception:
+            pass
+    print("[VectorStore] Cleared all existing collections")
+
+
 def build_vectorstore():
     """Run full ingestion into ChromaDB."""
     client = get_chroma_client()
+
+    # Always reset collections to remove stale data from previous runs
+    reset_collections(client)
 
     ingest_data_dictionary(client)
     ingest_ontology(client)

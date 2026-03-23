@@ -3,5 +3,4 @@ __pycache__/
 *.db
 chroma_db/
 profiling_output/
-mappings/
 .env

@@ -1,32 +1,43 @@
-"""Ontology: Programmatically discover entities and relationships across all layers."""
+"""Ontology: Programmatically discover entities and relationships using LLM — no hardcoded patterns."""
 
 import json
 import os
+import re
+import anthropic
+from dotenv import load_dotenv
 
 from pipeline.schema_utils import get_all_bronze_schemas, get_entity_name_from_bronze
 
+load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pipeline.db")
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "profiling_output")
 
 
 def detect_primary_key(entity_name, columns, profile_stats):
-    """Heuristically detect the primary key column."""
+    """Detect the primary key column using uniqueness stats and naming conventions."""
     entity_singular = entity_name.rstrip("s")
 
-    # Strategy 1: naming convention ({entity_singular}_id)
-    for col in columns:
-        if col == f"{entity_singular}_id" or col == "id":
-            return col
-
-    # Strategy 2: uniqueness from profiling stats
+    # Strategy 1: column named {entity}_id or id with unique count == row count
     if profile_stats:
         row_count = profile_stats.get("row_count", 0)
         for col_name, col_stats in profile_stats.get("columns", {}).items():
             if col_stats.get("unique_count") == row_count and col_name.endswith("_id"):
                 return col_name
 
-    # Strategy 3: first column
+    # Strategy 2: naming convention ({entity_singular}_id)
+    for col in columns:
+        if col == f"{entity_singular}_id" or col == "id":
+            return col
+
+    # Strategy 3: any column ending in _id with unique values
+    if profile_stats:
+        row_count = profile_stats.get("row_count", 0)
+        for col_name, col_stats in profile_stats.get("columns", {}).items():
+            if col_name.endswith("_id") and col_stats.get("unique_count") == row_count:
+                return col_name
+
+    # Strategy 4: first column
     return columns[0] if columns else "unknown"
 
 
@@ -79,7 +90,56 @@ def detect_relationships(bronze_schemas, bronze_profiles):
     return relationships
 
 
-def build_entity(entity_name, bronze_table, columns, pk, lineage_data):
+def generate_ontology_descriptions(entities_info, relationships_info):
+    """Use LLM to generate entity and relationship descriptions in one call."""
+    client = anthropic.Anthropic()
+
+    entities_ctx = []
+    for name, info in entities_info.items():
+        attrs = ", ".join(info["attributes"][:10])
+        entities_ctx.append(
+            f"- {name}: PK={info['pk']}, columns=[{attrs}]"
+        )
+
+    rels_ctx = []
+    for rel in relationships_info:
+        key = f"{rel['from']}__{rel['to']}"
+        rels_ctx.append(
+            f"- {key}: {rel['from']} -> {rel['to']} linked by column '{rel['join_col']}'"
+        )
+
+    prompt = (
+        f"Based on these database entities and their relationships, generate descriptions.\n\n"
+        f"Entities:\n{chr(10).join(entities_ctx)}\n\n"
+        f"Relationships:\n{chr(10).join(rels_ctx) if rels_ctx else 'None detected'}\n\n"
+        f"Return ONLY a valid JSON object:\n"
+        f'{{"entities": {{"EntityName": "description", ...}}, '
+        f'"relationships": {{"From__To": {{"description": "...", "type": "one_to_many or one_to_one or many_to_many"}}, ...}}}}\n'
+        f"No markdown, no explanation, just the JSON."
+    )
+
+    try:
+        message = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = message.content[0].text.strip()
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        return json.loads(text)
+    except (json.JSONDecodeError, Exception) as e:
+        try:
+            json_match = re.search(r"\{[\s\S]*\}", text)
+            if json_match:
+                return json.loads(json_match.group())
+        except Exception:
+            pass
+        print(f"[Ontology] Warning: LLM call failed: {e}")
+        return {"entities": {}, "relationships": {}}
+
+
+def build_entity(entity_name, bronze_table, columns, pk, lineage_data, description):
     """Build a single entity definition with cross-layer table references."""
     entity_key = entity_name.title().rstrip("s")
 
@@ -107,8 +167,6 @@ def build_entity(entity_name, bronze_table, columns, pk, lineage_data):
                 "key_column": pk_entry.get("gold_column", "N/A"),
             }
 
-    description = f"A {entity_key.lower()} entity sourced from {entity_name}.csv"
-
     return entity_key, {
         "description": description,
         "source_file": f"{entity_name}.csv",
@@ -119,7 +177,7 @@ def build_entity(entity_name, bronze_table, columns, pk, lineage_data):
 
 
 def generate_ontology(db_path=None):
-    """Programmatically generate ontology from bronze schemas and lineage data."""
+    """Programmatically generate ontology from database metadata and LLM descriptions."""
     db_path = db_path or DB_PATH
 
     # Discover bronze schemas
@@ -139,17 +197,53 @@ def generate_ontology(db_path=None):
         with open(lineage_path) as f:
             lineage_data = json.load(f)
 
-    # Build entities
+    # Detect PKs and relationships programmatically
+    entity_info_for_llm = {}
+    entity_pks = {}
+    for bronze_table, columns in bronze_schemas.items():
+        entity_name = get_entity_name_from_bronze(bronze_table)
+        entity_key = entity_name.title().rstrip("s")
+        profile = bronze_profile.get(bronze_table, {})
+        pk = detect_primary_key(entity_name, columns, profile)
+        entity_pks[entity_key] = pk
+        entity_info_for_llm[entity_key] = {
+            "pk": pk,
+            "attributes": [c for c in columns if c != pk],
+        }
+
+    raw_relationships = detect_relationships(bronze_schemas, bronze_profile)
+
+    rels_for_llm = []
+    for rel in raw_relationships:
+        from_key = rel["from_entity_name"].title().rstrip("s")
+        to_key = rel["to_entity_name"].title().rstrip("s")
+        rels_for_llm.append({
+            "from": from_key,
+            "to": to_key,
+            "join_col": rel["join_column"],
+        })
+
+    # Generate descriptions via LLM (one call for all entities + relationships)
+    print("[Ontology] Generating entity and relationship descriptions via LLM...")
+    llm_descriptions = generate_ontology_descriptions(entity_info_for_llm, rels_for_llm)
+
+    # Build entities with LLM descriptions
     entities = {}
     for bronze_table, columns in bronze_schemas.items():
         entity_name = get_entity_name_from_bronze(bronze_table)
+        entity_key = entity_name.title().rstrip("s")
         profile = bronze_profile.get(bronze_table, {})
         pk = detect_primary_key(entity_name, columns, profile)
-        entity_key, entity_def = build_entity(entity_name, bronze_table, columns, pk, lineage_data)
-        entities[entity_key] = entity_def
 
-    # Detect relationships
-    raw_relationships = detect_relationships(bronze_schemas, bronze_profile)
+        description = llm_descriptions.get("entities", {}).get(
+            entity_key,
+            f"Entity representing {entity_name} data",
+        )
+
+        ek, entity_def = build_entity(
+            entity_name, bronze_table, columns, pk, lineage_data, description
+        )
+        entities[ek] = entity_def
 
     # Enrich relationships with silver/gold join keys from lineage
     relationships = []
@@ -190,15 +284,21 @@ def generate_ontology(db_path=None):
                 "to_column": to_entry.get("gold_column", "N/A"),
             }
 
+        # Use LLM description and relationship type
+        rel_key = f"{from_entity_key}__{to_entity_key}"
+        llm_rel = llm_descriptions.get("relationships", {}).get(rel_key, {})
+        rel_description = llm_rel.get(
+            "description",
+            f"{from_entity_key} is linked to {to_entity_key} via {join_col}",
+        )
+        rel_type = llm_rel.get("type", "one_to_many")
+
         relationships.append({
             "name": f"{from_entity_key} has {to_entity_name.title()}",
-            "type": "one_to_many",
+            "type": rel_type,
             "from_entity": from_entity_key,
             "to_entity": to_entity_key,
-            "join_description": (
-                f"A {from_entity_key.lower()} can have multiple "
-                f"{to_entity_name}. Linked by {join_col}."
-            ),
+            "join_description": rel_description,
             "join_keys": join_keys,
         })
 
