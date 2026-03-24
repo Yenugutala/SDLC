@@ -20,7 +20,10 @@ def generate_descriptions_llm(table_name, layer, columns_info, row_count):
         ctx = f"- {col_name}"
         original = info.get("original_name", col_name)
         if original != col_name:
-            ctx += f" (original name: {original})"
+            ctx += f" (derived from: {original})"
+        trans_type = info.get("transformation_type", "source")
+        if trans_type not in ("rename", "source"):
+            ctx += f" [{trans_type}: {info.get('expression', '')}]"
         ctx += f" | type: {info['data_type']}"
         if info.get("sample_values"):
             samples = [str(s) for s in info["sample_values"][:3]]
@@ -96,13 +99,38 @@ def generate_data_dictionary():
         with open(lineage_path) as f:
             lineage_data = json.load(f)
 
-    # Build reverse lookup: obfuscated_col -> original_col
+    # Build reverse lookup: obfuscated_col -> {sources, expression, transformation_type}
+    # Handles multi-source columns (e.g., full_name from first_name + last_name)
     col_to_original = {}
     for lineage_list in lineage_data.values():
         for entry in lineage_list:
-            col_to_original[entry["silver_column"]] = entry["source_column"]
-            col_to_original[entry["gold_column"]] = entry["source_column"]
-            col_to_original[entry["bronze_column"]] = entry["source_column"]
+            silver_col = entry["silver_column"]
+            source_col = entry["source_column"]
+            source_table = entry.get("source_table", entry.get("bronze_table", ""))
+            expression = entry.get("expression", source_col)
+            trans_type = entry.get("transformation_type", "rename")
+
+            if silver_col not in col_to_original:
+                col_to_original[silver_col] = {
+                    "sources": [],
+                    "expression": expression,
+                    "transformation_type": trans_type,
+                }
+            source_desc = f"{source_table}.{source_col}"
+            if source_desc not in col_to_original[silver_col]["sources"]:
+                col_to_original[silver_col]["sources"].append(source_desc)
+
+            # Gold columns inherit from their silver parent
+            gold_col = entry.get("gold_column", "N/A")
+            if gold_col != "N/A" and gold_col not in col_to_original:
+                col_to_original[gold_col] = col_to_original[silver_col]
+
+            # Bronze columns are straightforward
+            col_to_original[entry["bronze_column"]] = {
+                "sources": [source_col],
+                "expression": source_col,
+                "transformation_type": "source",
+            }
 
     data_dictionary = {}
 
@@ -117,9 +145,27 @@ def generate_data_dictionary():
             # Prepare column info for LLM
             columns_for_llm = []
             for col_name, col_stats in table_profile.get("columns", {}).items():
-                original_col = col_to_original.get(col_name, col_name)
+                info = col_to_original.get(col_name)
+                if info and isinstance(info, dict):
+                    sources = info.get("sources", [col_name])
+                    expression = info.get("expression", col_name)
+                    trans_type = info.get("transformation_type", "source")
+                    # Build readable original name
+                    if len(sources) == 1:
+                        original_col = sources[0].split(".")[-1] if "." in sources[0] else sources[0]
+                    else:
+                        original_col = expression
+                else:
+                    original_col = col_name
+                    sources = [col_name]
+                    expression = col_name
+                    trans_type = "source"
+
                 columns_for_llm.append((col_name, {
                     "original_name": original_col,
+                    "sources": sources,
+                    "expression": expression,
+                    "transformation_type": trans_type,
                     "data_type": col_stats.get("data_type", "unknown"),
                     "sample_values": col_stats.get("sample_values", []),
                     "null_pct": col_stats.get("null_pct", 0),
@@ -138,7 +184,20 @@ def generate_data_dictionary():
                 "columns": [],
             }
             for col_name, col_stats in table_profile.get("columns", {}).items():
-                original_col = col_to_original.get(col_name, col_name)
+                info = col_to_original.get(col_name)
+                if info and isinstance(info, dict):
+                    sources = info.get("sources", [col_name])
+                    expression = info.get("expression", col_name)
+                    trans_type = info.get("transformation_type", "source")
+                    if len(sources) == 1:
+                        original_col = sources[0].split(".")[-1] if "." in sources[0] else sources[0]
+                    else:
+                        original_col = expression
+                else:
+                    original_col = col_name
+                    sources = [col_name]
+                    expression = col_name
+                    trans_type = "source"
 
                 # Use LLM description, fallback if not available
                 description = llm_descriptions.get(col_name)
@@ -153,6 +212,9 @@ def generate_data_dictionary():
                 col_entry = {
                     "column_name": col_name,
                     "original_name": original_col,
+                    "source_columns": sources,
+                    "transformation_type": trans_type,
+                    "expression": expression,
                     "data_type": col_stats.get("data_type", "unknown"),
                     "description": description,
                     "null_pct": col_stats.get("null_pct", 0),

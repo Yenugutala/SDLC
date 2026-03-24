@@ -4,3 +4,5 @@ __pycache__/
 chroma_db/
 profiling_output/
 .env
+query_log.jsonl
+feedback_cache.json

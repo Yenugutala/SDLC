@@ -149,23 +149,21 @@ def build_entity(entity_name, bronze_table, columns, pk, lineage_data, descripti
         "bronze": {"table": bronze_table, "key_column": pk},
     }
 
-    # Extract silver/gold table names from lineage
-    lineage_entries = lineage_data.get(f"{entity_name}_lineage", [])
-    if lineage_entries:
-        first = lineage_entries[0]
-        silver_table = first.get("silver_table", "N/A")
-        gold_view = first.get("gold_view", "N/A")
-
-        pk_entry = next((e for e in lineage_entries if e["source_column"] == pk), None)
-        if pk_entry:
-            layers["silver"] = {
-                "table": silver_table,
-                "key_column": pk_entry.get("silver_column", "N/A"),
-            }
-            layers["gold"] = {
-                "view": gold_view,
-                "key_column": pk_entry.get("gold_column", "N/A"),
-            }
+    # Search all lineage entries for this bronze table's PK
+    for lineage_key, lineage_entries in lineage_data.items():
+        for entry in lineage_entries:
+            if entry.get("source_table") == bronze_table and entry.get("source_column") == pk:
+                layers["silver"] = {
+                    "table": entry.get("silver_table", "N/A"),
+                    "key_column": entry.get("silver_column", "N/A"),
+                }
+                layers["gold"] = {
+                    "view": entry.get("gold_view", "N/A"),
+                    "key_column": entry.get("gold_column", "N/A"),
+                }
+                break
+        if "silver" in layers:
+            break
 
     return entity_key, {
         "description": description,
@@ -174,6 +172,15 @@ def build_entity(entity_name, bronze_table, columns, pk, lineage_data, descripti
         "attributes": attributes,
         "layers": layers,
     }
+
+
+def _find_lineage_entry(lineage_data, bronze_table, column_name):
+    """Find a lineage entry for a specific bronze table and column."""
+    for entries in lineage_data.values():
+        for entry in entries:
+            if entry.get("source_table") == bronze_table and entry.get("source_column") == column_name:
+                return entry
+    return None
 
 
 def generate_ontology(db_path=None):
@@ -263,12 +270,9 @@ def generate_ontology(db_path=None):
             }
         }
 
-        # Look up silver/gold column names from lineage
-        from_lineage = lineage_data.get(f"{from_entity_name}_lineage", [])
-        to_lineage = lineage_data.get(f"{to_entity_name}_lineage", [])
-
-        from_entry = next((e for e in from_lineage if e["source_column"] == join_col), None)
-        to_entry = next((e for e in to_lineage if e["source_column"] == join_col), None)
+        # Look up silver/gold column names by searching all lineage entries
+        from_entry = _find_lineage_entry(lineage_data, rel["from_bronze_table"], join_col)
+        to_entry = _find_lineage_entry(lineage_data, rel["to_bronze_table"], join_col)
 
         if from_entry and to_entry:
             join_keys["silver"] = {
