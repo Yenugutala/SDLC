@@ -1,30 +1,30 @@
 """
 Natural Language Query Examples for Data Platform Knowledge Graph.
 
-Demonstrates Azure OpenAI integration for querying the knowledge graph
+Demonstrates OpenRouter integration for querying the knowledge graph
 using plain English questions with semantic search capabilities.
+
+Run:
+    python scripts/query_examples.py
 """
 
 import sys
 from pathlib import Path
 
-# Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.core.kg import KnowledgeGraph
-from src.core.vectorStore import VectorStore
-from src.data.mockData import (
-    pipelines, tables, columns, confluencePages,
-    jiraTickets, alerts, dataQualityRules, environments
+from graph.knowledge_graph import KnowledgeGraph
+from rag.vectorstore import VectorStore
+from pipeline.bronze_layer import bronze_pipelines, bronze_tables, bronze_columns
+from pipeline.silver_layer import silver_pipelines, silver_tables, silver_columns
+from pipeline.gold_layer import gold_pipelines, gold_tables, gold_columns
+from pipeline.ingestion import ingestAllData
+from dictionary.data_dictionary import (
+    confluencePages, jiraTickets, alerts, dataQualityRules, environments
 )
-from src.data.dataIngestion import ingestAllData
-from src.queries.naturalLanguageQuery import NaturalLanguageQueryEngine, askQuestion
-from src.utils.formatting import printHeader, printSubHeader
+from rag.query_engine import NaturalLanguageQueryEngine, askQuestion
+from utils.formatting import printHeader, printSubHeader
 
-
-# =============================================================================
-# Configuration
-# =============================================================================
 
 EXAMPLE_QUERIES = [
     {
@@ -62,7 +62,7 @@ EXAMPLE_QUERIES = [
 USAGE_GUIDE = """
 To use natural language queries in your own code:
 
-    from src.queries.naturalLanguageQuery import askQuestion
+    from rag.query_engine import askQuestion
 
     # Simple usage
     answer = askQuestion(kg, vectorDb, "Your question here")
@@ -76,30 +76,20 @@ To use natural language queries in your own code:
     print(result['answer'])
     print(result['reasoning'])
 
-Run interactiveQuery.py for an interactive chat interface!
+Run scripts/interactive_query.py for an interactive chat interface!
 """
 
 
-# =============================================================================
-# Knowledge Graph Setup
-# =============================================================================
-
-def initializeKnowledgeGraph() -> tuple[KnowledgeGraph, VectorStore]:
-    """
-    Initialize and populate the knowledge graph with mock data.
-
-    Returns:
-        Tuple of (KnowledgeGraph, VectorStore) instances
-    """
+def initializeKnowledgeGraph() -> tuple:
     print("Setting up Knowledge Graph...\n")
 
     kg = KnowledgeGraph()
     vectorDb = VectorStore()
 
     data = {
-        'pipelines': pipelines,
-        'tables': tables,
-        'columns': columns,
+        'pipelines': bronze_pipelines + silver_pipelines + gold_pipelines,
+        'tables': bronze_tables + silver_tables + gold_tables,
+        'columns': bronze_columns + silver_columns + gold_columns,
         'confluencePages': confluencePages,
         'jiraTickets': jiraTickets,
         'alerts': alerts,
@@ -111,61 +101,41 @@ def initializeKnowledgeGraph() -> tuple[KnowledgeGraph, VectorStore]:
     return kg, vectorDb
 
 
-# =============================================================================
-# Query Execution
-# =============================================================================
-
 class QueryExecutor:
-    """Executes different types of natural language queries."""
-
     def __init__(self, kg: KnowledgeGraph, vectorDb: VectorStore):
         self.kg = kg
         self.vectorDb = vectorDb
         self.engine = NaturalLanguageQueryEngine()
 
     def executeSimpleQuery(self, question: str) -> None:
-        """Execute a simple query using the askQuestion helper."""
         print(f"Question: {question}\n")
         answer = askQuestion(self.kg, self.vectorDb, question)
         print(f"Answer: {answer}")
 
     def executeStandardQuery(self, question: str) -> None:
-        """Execute a standard query using the query engine."""
         print(f"Question: {question}\n")
         answer = self.engine.query(self.kg, self.vectorDb, question)
         print(f"Answer: {answer}")
 
     def executeReasoningQuery(self, question: str) -> None:
-        """Execute a query with detailed reasoning and sources."""
         print(f"Question: {question}\n")
         result = self.engine.queryWithReasoning(self.kg, self.vectorDb, question)
-
         print(f"Answer: {result['answer']}\n")
-
         if result['reasoning']:
             print(f"Reasoning: {result['reasoning']}\n")
-
         if result['sources']:
             print(f"Sources: {result['sources']}")
 
     def execute(self, question: str, method: str) -> None:
-        """Execute a query using the specified method."""
         methods = {
             "simple": self.executeSimpleQuery,
             "standard": self.executeStandardQuery,
             "reasoning": self.executeReasoningQuery
         }
+        methods.get(method, self.executeStandardQuery)(question)
 
-        handler = methods.get(method, self.executeStandardQuery)
-        handler(question)
-
-
-# =============================================================================
-# Main Execution
-# =============================================================================
 
 def runExamples() -> None:
-    """Run all example queries demonstrating different capabilities."""
     kg, vectorDb = initializeKnowledgeGraph()
     executor = QueryExecutor(kg, vectorDb)
 
@@ -180,7 +150,6 @@ def runExamples() -> None:
 
 
 def main() -> None:
-    """Entry point for the query examples demonstration."""
     runExamples()
 
 

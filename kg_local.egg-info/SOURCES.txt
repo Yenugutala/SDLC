@@ -1,9 +1,9 @@
+README.md
 setup.py
-examples/__init__.py
 examples/interactiveQuery.py
 examples/queryExamples.py
 examples/searchExamples.py
-examples/testQuery.py
+kg_local.egg-info/Icon
 kg_local.egg-info/PKG-INFO
 kg_local.egg-info/SOURCES.txt
 kg_local.egg-info/dependency_links.txt
@@ -19,3 +19,5 @@ src/data/mockData.py
 src/queries/__init__.py
 src/queries/naturalLanguageQuery.py
 src/queries/queryEngine.py
+src/utils/__init__.py
+src/utils/formatting.py

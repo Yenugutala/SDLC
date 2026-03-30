@@ -1,0 +1,35 @@
+# Environment & secrets
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# macOS
+.DS_Store
+Icon?
+Icon\r
+**/.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs & output
+*.log
+profiling_output/
+
+# Jupyter
+.ipynb_checkpoints/
