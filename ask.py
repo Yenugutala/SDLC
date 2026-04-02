@@ -1,4 +1,9 @@
-"""CLI interface to query the data catalog using RAG."""
+"""CLI interface to query the data catalog using RAG.
+
+Usage:
+    python ask.py "your question"            # non-streaming (default)
+    python ask.py --stream "your question"   # streaming (tokens appear as generated)
+"""
 
 import sys
 import os
@@ -12,29 +17,44 @@ from rag.query_engine import query, record_feedback, _chunk_id
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python ask.py \"<your question>\"")
+    args = sys.argv[1:]
+
+    if not args:
+        print("Usage: python ask.py [--stream] \"<your question>\"")
+        print()
+        print("Options:")
+        print("  --stream    Stream the response token by token")
         print()
         print("Example queries:")
         print('  python ask.py "What does col_x1a mean in silver_tbl_a1?"')
         print('  python ask.py "Show me the lineage of patient_id"')
-        print('  python ask.py "What tables exist in the gold layer?"')
+        print('  python ask.py --stream "How is Total Revenue calculated in PBI?"')
         print('  python ask.py "How are patients and visits related?"')
-        print('  python ask.py "What is the data type of bill_amount?"')
         sys.exit(1)
 
-    question = " ".join(sys.argv[1:])
-    query_id, answer = query(question)
-    print(f"\n{'=' * 60}")
-    print(f"Q: {question}")
-    print(f"{'=' * 60}")
-    print(f"\n{answer}\n")
+    stream = False
+    if "--stream" in args:
+        stream = True
+        args.remove("--stream")
+
+    question = " ".join(args)
+
+    if stream:
+        print(f"\n{'=' * 60}")
+        print(f"Q: {question}")
+        print(f"{'=' * 60}\n")
+        query_id, answer = query(question, stream=True)
+    else:
+        query_id, answer = query(question)
+        print(f"\n{'=' * 60}")
+        print(f"Q: {question}")
+        print(f"{'=' * 60}")
+        print(f"\n{answer}\n")
 
     # Collect user feedback
     try:
-        feedback = input("Was this answer helpful? (y/n/skip): ").strip().lower()
+        feedback = input("\nWas this answer helpful? (y/n/skip): ").strip().lower()
         if feedback in ("y", "n"):
-            # Re-run search to get chunk_ids for feedback cache
             from rag.query_engine import search_vectorstore
             chunks = search_vectorstore(question)
             chunk_ids = [_chunk_id(c) for c in chunks]

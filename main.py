@@ -2,6 +2,8 @@
 
 import sys
 import os
+import threading
+import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -12,6 +14,9 @@ from profiling.great_expectations_profiler import run_profiling
 from profiling.lineage_tracker import build_lineage
 from dictionary.data_dictionary import generate_data_dictionary
 from dictionary.ontology import generate_ontology
+from powerbi.mock_api_server import start_mock_server
+from powerbi.data_push_simulator import push_gold_to_pbi
+from powerbi.pbi_lineage_builder import build_pbi_lineage
 from rag.vectorstore import build_vectorstore
 
 
@@ -48,7 +53,28 @@ def run_pipeline():
     print("\nStep 7: Ontology")
     generate_ontology()
 
-    print("\nStep 8: Vector Store (ChromaDB)")
+    # Part 3: Power BI Integration
+    print("\n--- PART 3: Power BI Integration ---\n")
+
+    print("Step 8: Start Mock Power BI API Server")
+    server_thread = threading.Thread(
+        target=start_mock_server,
+        kwargs={"host": "127.0.0.1", "port": 6789},
+        daemon=True,
+    )
+    server_thread.start()
+    time.sleep(1)  # Wait for server startup
+
+    print("\nStep 9: Push Gold Data to Mock PBI")
+    push_gold_to_pbi()
+
+    print("\nStep 10: Build PBI Lineage (Dashboard -> Source)")
+    build_pbi_lineage()
+
+    # Part 4: Vector Store (after PBI so it includes PBI data)
+    print("\n--- PART 4: Vector Store ---\n")
+
+    print("Step 11: Vector Store (ChromaDB) — includes PBI metadata")
     build_vectorstore()
 
     print("\n" + "=" * 60)
