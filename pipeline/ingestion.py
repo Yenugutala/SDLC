@@ -139,7 +139,8 @@ def ingestConfluencePages(kg: KnowledgeGraph, vectorDb: VectorStore,
             "ConfluencePage",
             title=doc["title"],
             space=doc["space"],
-            author=doc["author"]
+            author=doc["author"],
+            tags=doc.get("tags", [])
         )
 
         # A Confluence page can document multiple pipelines
@@ -148,9 +149,11 @@ def ingestConfluencePages(kg: KnowledgeGraph, vectorDb: VectorStore,
 
         # Use addChunked — Confluence pages can have long content.
         # For short contentPreview values this is a no-op (single chunk).
+        # Include tags in the embedded text so queries about tags return this page
+        tagsText = f" Tags: {', '.join(doc['tags'])}." if doc.get('tags') else ""
         vectorDb.addChunked(
             doc["id"],
-            f"{doc['title']} - {doc['contentPreview']}",
+            f"{doc['title']} - {doc['contentPreview']}{tagsText}",
             {"type": "Confluence", "tags": ",".join(doc["tags"]), "space": doc["space"]}
         )
 
@@ -168,7 +171,10 @@ def ingestJiraTickets(kg: KnowledgeGraph, vectorDb: VectorStore,
             status=j["status"],
             priority=j["priority"],
             assignee=j["assignee"],
-            storyPoints=j.get("storyPoints")
+            storyPoints=j.get("storyPoints"),
+            linkedPipelines=j.get("linkedPipelines", []),
+            linkedConfluence=j.get("linkedConfluence", []),
+            tags=j.get("tags", [])
         )
 
         # TRACKS: ticket owns work on a pipeline (e.g. a feature or bug fix)
@@ -290,9 +296,13 @@ def ingestPowerBIDashboards(kg: KnowledgeGraph, vectorDb: VectorStore,
         for tableId in dash.get("readsFromTables", []):
             kg.add_edge(dash["id"], "READS_FROM", tableId)
 
+        # Include KPI IDs in the dashboard text so the LLM can see all KPIs
+        # directly from the dashboard record — not just from individual KPI retrieval
+        kpiList = dash.get("containsKPIs", [])
+        kpiText = f" Contains KPIs: {', '.join(kpiList)}." if kpiList else ""
         vectorDb.add(
             dash["id"],
-            f"Power BI Dashboard: {dash['name']} - {dash['description']}",
+            f"Power BI Dashboard: {dash['name']} - {dash['description']}{kpiText}",
             {"type": "PowerBIDashboard", "tags": ",".join(dash["tags"]),
              "workspace": dash["workspace"], "owner": dash["owner"]}
         )
@@ -330,11 +340,14 @@ def ingestPowerBIKPIs(kg: KnowledgeGraph, vectorDb: VectorStore,
         for colId in kpi.get("readsFromColumns", []):
             kg.add_edge(kpi["id"], "READS_FROM", colId)
 
-        # Embed calculation formula in the text so queries about how a KPI is
-        # computed ("How is NRM calculated?") return this node
+        # Include all dashboards this KPI appears in so it surfaces for any
+        # of its associated dashboards during retrieval — not just the primary one
+        allDashboards = list({kpi.get("dashboardId", "")} | set(kpi.get("usedInDashboards", [])))
+        allDashboards = [d for d in allDashboards if d]
+        dashboardText = f" Used in dashboards: {', '.join(allDashboards)}." if allDashboards else ""
         vectorDb.add(
             kpi["id"],
-            f"Power BI KPI: {kpi['name']} - {kpi['description']} Calculation: {kpi['calculation']}",
+            f"Power BI KPI: {kpi['name']} - {kpi['description']} Calculation: {kpi['calculation']}.{dashboardText}",
             {"type": "PowerBIKPI", "tags": ",".join(kpi["tags"]), "unit": kpi["unit"]}
         )
 

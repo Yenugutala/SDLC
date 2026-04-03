@@ -311,6 +311,92 @@ def queryCriticalAlerts(alerts: List[Dict[str, Any]]) -> None:
             console.print(f"      [dim]Threshold:[/dim] {alert['threshold']}")
 
 
+def queryNodeProperty(kg: KnowledgeGraph, entityQuery: str, prop: str) -> None:
+    """
+    Graph traversal: look up a specific property on any node by name or ID.
+    Used for factual lookups like tags, status, owner, description.
+    """
+    # Find the best matching node
+    match = None
+    for nId, data in kg.graph.nodes(data=True):
+        name = data.get('name') or data.get('title', '')
+        if entityQuery.lower() in nId.lower() or entityQuery.lower() in name.lower():
+            match = (nId, data)
+            break
+
+    if not match:
+        console.print(f"\n  [yellow]Entity '{entityQuery}' not found in graph.[/yellow]")
+        return
+
+    nId, data = match
+    entityType = data.get('type', 'Unknown')
+    entityName = data.get('name') or data.get('title', nId)
+
+    printHeader(f"{prop.upper()}: {entityName}")
+    console.print(f"\n  [dim]ID:[/dim] {nId}  {colorEntityType(entityType)}\n")
+
+    value = data.get(prop)
+    if value is None:
+        console.print(f"  [yellow]No '{prop}' property found on this entity.[/yellow]")
+        return
+
+    if isinstance(value, list):
+        if not value:
+            console.print(f"  [yellow]No {prop} defined.[/yellow]")
+        else:
+            console.print(f"  [bold]{len(value)} {prop}(s):[/bold]\n")
+            for i, item in enumerate(value, 1):
+                console.print(f"  [bold cyan]{i}.[/bold cyan] {item}")
+    else:
+        console.print(f"  [bold]{prop}:[/bold] {value}")
+    console.print()
+
+
+def queryKPIsByDashboard(kg: KnowledgeGraph, dashboardQuery: str) -> None:
+    """
+    Graph traversal: find all KPIs contained in a dashboard.
+    Matches by dashboard ID or partial name — follows CONTAINS edges directly.
+    """
+    # Find matching dashboard node by ID or name
+    dashboardId = None
+    for nId, data in kg.graph.nodes(data=True):
+        if data.get('type') != 'PowerBIDashboard':
+            continue
+        if (dashboardQuery.lower() in nId.lower() or
+                dashboardQuery.lower() in data.get('name', '').lower()):
+            dashboardId = nId
+            break
+
+    if not dashboardId:
+        console.print(f"\n  [yellow]Dashboard '{dashboardQuery}' not found.[/yellow]")
+        return
+
+    dashData = kg.graph.nodes[dashboardId]
+    printHeader(f"KPIs: {dashData.get('name', dashboardId)}")
+    console.print(f"\n  [dim]ID:[/dim] {dashboardId}")
+    console.print(f"  [dim]Workspace:[/dim] {dashData.get('workspace', 'N/A')}")
+    console.print(f"  [dim]Status:[/dim] {colorStatus(dashData.get('status', 'N/A'))}\n")
+
+    # Follow CONTAINS edges from dashboard → KPI nodes
+    kpis = [
+        tId for tId in kg.graph.successors(dashboardId)
+        if kg.graph.nodes[tId].get('type') == 'PowerBIKPI'
+        and kg.graph.get_edge_data(dashboardId, tId, {}).get('relation') == 'CONTAINS'
+    ]
+
+    if not kpis:
+        console.print("  [yellow]No KPIs found for this dashboard.[/yellow]")
+        return
+
+    console.print(f"  [bold]{len(kpis)} KPI(s) found:[/bold]\n")
+    for i, kpiId in enumerate(kpis, 1):
+        kData = kg.graph.nodes[kpiId]
+        console.print(f"  [bold cyan]{i}.[/bold cyan] [bold]{kData.get('name', kpiId)}[/bold]  [dim]({kpiId})[/dim]")
+        console.print(f"     [dim]Description:[/dim] {kData.get('description', 'N/A')}")
+        console.print(f"     [dim]Unit:[/dim] {kData.get('unit', 'N/A')}")
+        console.print()
+
+
 def queryGraphStatistics(kg: KnowledgeGraph) -> None:
     """Display overall graph statistics."""
     printHeader("QUERY: Graph Statistics")

@@ -57,7 +57,8 @@ from rich.text import Text
 from rag.query_engine import NaturalLanguageQueryEngine
 from graph.graph_queries import (
     findFeature, showFeatureStatus, showAllFeatures,
-    isFeatureInProject, queryGraphStatistics
+    isFeatureInProject, queryGraphStatistics, queryKPIsByDashboard,
+    queryNodeProperty
 )
 
 
@@ -113,6 +114,7 @@ AVAILABLE COMMANDS
     /impact <column_id> - Which dashboards/KPIs break if this column changes?
     /depends <pipeline_id> - Which KPIs depend on this pipeline?
     /whochanged <table_id> - Which Jira tickets modified this table?
+    /kpis <dashboard>   - List all KPIs in a dashboard (exact, graph traversal)
 
   Other Commands:
     /help               - Show this help message
@@ -470,11 +472,50 @@ class CommandHandler:
                 showFeatureStatus(self.kg, self.vectorDb, featureName)
             else:
                 print("\n  Usage: /status <feature name>")
+        elif command.startswith('/kpis '):
+            dashboardName = userInput[6:].strip()
+            if dashboardName:
+                queryKPIsByDashboard(self.kg, dashboardName)
+            else:
+                print("\n  Usage: /kpis <dashboard name or id>  (e.g. /kpis Reckitt Nutrition Executive)")
         else:
             print(f"\n  Unknown command: {userInput}")
             print("  Type /help for available commands.")
 
     def _handleNaturalLanguageQuery(self, userInput: str):
+        import re
+        lower = userInput.lower()
+
+        # Detect "which KPIs are in dashboard X" — route to graph traversal
+        if any(kw in lower for kw in ('kpi', 'kpis')) and \
+           any(kw in lower for kw in ('dashboard', 'report')):
+            quoted = re.search(r'["\'](.+?)["\']', userInput)
+            if quoted:
+                dashboardName = quoted.group(1)
+            else:
+                match = re.search(r'dashboard\s+(.+)', userInput, re.IGNORECASE)
+                dashboardName = match.group(1).strip('?').strip() if match else userInput
+            queryKPIsByDashboard(self.kg, dashboardName)
+            return
+
+        # Detect property lookups — "what are the tags/linkedPipelines/linkedConfluence for X"
+        PROPERTY_KEYWORDS = {
+            'tag': 'tags',
+            'linkedpipeline': 'linkedPipelines',
+            'linked pipeline': 'linkedPipelines',
+            'linkedconfluence': 'linkedConfluence',
+            'linked confluence': 'linkedConfluence',
+        }
+        for kw, prop in PROPERTY_KEYWORDS.items():
+            if kw in lower:
+                quoted = re.search(r'["\'](.+?)["\']', userInput)
+                # Also match bare ticket IDs like DATA-111
+                ticket = re.search(r'\b([A-Z]+-\d+)\b', userInput)
+                entityName = quoted.group(1) if quoted else (ticket.group(1) if ticket else None)
+                if entityName:
+                    queryNodeProperty(self.kg, entityName, prop)
+                    return
+
         console.print("\n[bold cyan]Searching knowledge graph...[/bold cyan]")
         answer = self.queryEngine.query(self.kg, self.vectorDb, userInput)
         console.print(Panel(answer, title="[bold green]ANSWER[/bold green]",
