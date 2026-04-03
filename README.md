@@ -1,4 +1,4 @@
-# SDLC Knowledge Graph — Reckitt Nutrition
+# SDLC Knowledge Graph 
 
 A Python-based Knowledge Graph for **SDLC automation** — connecting data pipelines, tables, columns, Power BI dashboards, Jira tickets, Confluence docs, and a Data Dictionary into a single queryable graph. Built around **Reckitt Nutrition** as the primary domain.
 
