@@ -17,21 +17,31 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "profiling
 def query_bronze_to_silver_lineage(conn):
     """Query _column_lineage table for Bronze -> Silver mappings.
 
-    Returns: {"bronze_X_to_silver_Y": {"bronze_col": "silver_col", ...}, ...}
+    Returns: {
+        "silver_tbl_xa": [
+            {"source_table": ..., "source_column": ..., "target_column": ...,
+             "transformation_type": ..., "expression": ...},
+        ]
+    }
     """
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT source_table, source_column, target_table, target_column "
-        "FROM _column_lineage"
+        "SELECT source_table, source_column, target_table, target_column, "
+        "transformation_type, expression FROM _column_lineage"
     )
     rows = cursor.fetchall()
 
     mappings = {}
-    for source_table, source_col, target_table, target_col in rows:
-        key = f"{source_table}_to_{target_table}"
-        if key not in mappings:
-            mappings[key] = {}
-        mappings[key][source_col] = target_col
+    for source_table, source_col, target_table, target_col, trans_type, expression in rows:
+        if target_table not in mappings:
+            mappings[target_table] = []
+        mappings[target_table].append({
+            "source_table": source_table,
+            "source_column": source_col,
+            "target_column": target_col,
+            "transformation_type": trans_type,
+            "expression": expression or f"{source_table}.{source_col}",
+        })
 
     return mappings
 
@@ -76,7 +86,7 @@ def parse_gold_view_lineage(conn):
 
 
 def parse_mapping_key(key):
-    """Parse a mapping key like 'bronze_patients_to_silver_tbl_a1'.
+    """Parse a mapping key like 'silver_tbl_xa_to_gold_vw_ah9'.
 
     Returns: (source_table, target_table)
     """
@@ -107,37 +117,40 @@ def build_lineage(db_path=None):
 
     conn.close()
 
-    # Build reverse index: silver_table -> (gold_view, column_map)
-    silver_to_gold_lookup = {}
+    # Build silver-to-gold lookup: {silver_table: {silver_col: (gold_view, gold_col)}}
+    silver_to_gold = {}
     for key, col_map in s2g_mappings.items():
         silver_table, gold_view = parse_mapping_key(key)
-        silver_to_gold_lookup[silver_table] = (gold_view, col_map)
+        silver_to_gold[silver_table] = {
+            s_col: (gold_view, g_col) for s_col, g_col in col_map.items()
+        }
 
-    # Build lineage by iterating all bronze-to-silver mappings
+    # Build lineage keyed by silver table
     lineage = {}
 
-    for b2s_key, b2s_col_map in b2s_mappings.items():
-        bronze_table, silver_table = parse_mapping_key(b2s_key)
-        entity = bronze_table.replace("bronze_", "", 1)
-        source_file = infer_source_file(bronze_table)
-
-        lineage_key = f"{entity}_lineage"
+    for silver_table, entries in b2s_mappings.items():
+        lineage_key = f"{silver_table}_lineage"
         lineage[lineage_key] = []
 
-        # Look up the corresponding silver-to-gold mapping
-        gold_view, s2g_col_map = silver_to_gold_lookup.get(silver_table, (None, {}))
+        s2g = silver_to_gold.get(silver_table, {})
 
-        for source_col, silver_col in b2s_col_map.items():
-            gold_col = s2g_col_map.get(silver_col, "N/A")
+        for entry in entries:
+            source_file = infer_source_file(entry["source_table"])
+            gold_info = s2g.get(entry["target_column"], ("N/A", "N/A"))
+            gold_view, gold_col = gold_info
+
             lineage[lineage_key].append({
                 "source_file": source_file,
-                "source_column": source_col,
-                "bronze_table": bronze_table,
-                "bronze_column": source_col,
+                "source_table": entry["source_table"],
+                "source_column": entry["source_column"],
+                "bronze_table": entry["source_table"],
+                "bronze_column": entry["source_column"],
                 "silver_table": silver_table,
-                "silver_column": silver_col,
-                "gold_view": gold_view or "N/A",
+                "silver_column": entry["target_column"],
+                "gold_view": gold_view,
                 "gold_column": gold_col,
+                "transformation_type": entry["transformation_type"],
+                "expression": entry["expression"],
             })
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -146,7 +159,7 @@ def build_lineage(db_path=None):
         json.dump(lineage, f, indent=2)
 
     total_cols = sum(len(entries) for entries in lineage.values())
-    print(f"[Lineage] Tracked {total_cols} columns across {len(lineage)} entities")
+    print(f"[Lineage] Tracked {total_cols} column-level lineage entries across {len(lineage)} silver tables")
     print(f"[Lineage] Saved to {output_path}")
     return lineage
 
