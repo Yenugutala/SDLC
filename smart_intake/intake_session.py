@@ -371,6 +371,44 @@ def _show_status(answers: Dict):
         print(f"    Phase {num}  {bar}  {pct:>4}  {label}")
 
 
+def _show_historical_matches(answers: Dict):
+    """Displays top similar historical projects as benchmark reference."""
+    try:
+        from smart_intake.rag_engine import find_similar_projects
+        matches = find_similar_projects(answers, top_k=3)
+        if not matches:
+            return
+        _banner("SIMILAR HISTORICAL PROJECTS", "blue")
+        for i, p in enumerate(matches, 1):
+            sim_pct = int(p["similarity_score"] * 100)
+            print(f"  {_c(str(i), 'yellow')}.  {_c(p['project_name'], 'bold')}  "
+                  f"[{_c(str(sim_pct)+'% match', 'cyan')}]")
+            print(f"      Domain   : {p['domain']}  |  Volume: {p['volume_band']}")
+            print(f"      Platform : {p['platform']}  |  DPS: {p['dps_score']}/100")
+            print(f"      Dev weeks: {p['dev_weeks_actual']}  |  "
+                  f"Impl cost: ${p['impl_cost_actual']:,.0f}  |  "
+                  f"Realised ROI: {p['roi_pct_actual']}%")
+            if p.get("lessons_learned"):
+                print(_c(f"      Lesson   : {p['lessons_learned']}", "dim"))
+            print()
+    except Exception:
+        pass
+
+
+def _show_dps(answers: Dict):
+    """Calculates and displays the Data Pipeline Score."""
+    try:
+        from smart_intake.dps_engine import calculate_dps, format_dps_report
+        from smart_intake.rag_engine import get_benchmark_stats
+        dps = calculate_dps(answers)
+        benchmark = get_benchmark_stats(answers)
+        benchmark_avg = benchmark.get("avg_dps_score") if benchmark else None
+        _banner("DATA PIPELINE SCORE (DPS)", "magenta")
+        print(format_dps_report(dps, benchmark_avg))
+    except Exception as e:
+        print(_c(f"  [DPS unavailable: {e}]", "dim"))
+
+
 def _show_summary(answers: Dict):
     _banner("ROI & ROM SUMMARY", "green")
     fills = auto_fill_values(answers)
@@ -558,6 +596,8 @@ def run_intake():
         if val == "quit":
             _save_session(session_id, user_id, project_name, answers, current_phase)
             _show_summary(answers)
+            _show_dps(answers)
+            _show_historical_matches(answers)
             print(_c("\n  Session saved. Goodbye!\n", "cyan"))
             return
 
@@ -577,6 +617,8 @@ def run_intake():
 
         if val == "summary":
             _show_summary(answers)
+            _show_dps(answers)
+            _show_historical_matches(answers)
             continue
 
         if val == "skip":
@@ -656,6 +698,10 @@ def run_intake():
     _show_status(answers)
     print()
     _show_summary(answers)
+    print()
+    _show_dps(answers)
+    print()
+    _show_historical_matches(answers)
 
     # ── Export summary ──
     print()

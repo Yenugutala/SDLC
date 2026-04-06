@@ -213,16 +213,27 @@ def _parse_llm_questions(
 # PUBLIC API — called by intake_engine.py
 # ─────────────────────────────────────────────
 
+def _get_benchmark_context(answers: Dict[str, Any]) -> str:
+    """Fetches historical benchmark context to inject into LLM prompts."""
+    try:
+        from smart_intake.rag_engine import get_benchmark_stats, format_benchmark_context
+        benchmark = get_benchmark_stats(answers)
+        return format_benchmark_context(benchmark)
+    except Exception:
+        return ""
+
+
 def generate_kpi_followups(
     kpi_description: str,
     answers: Dict[str, Any]
 ) -> List[DynamicQuestion]:
     """Generates follow-up questions after Q11 (KPI description)."""
+    benchmark_ctx = _get_benchmark_context(answers)
     prompt = PROMPT_TEMPLATES["Q11_kpi_followup"].format(
         kpi_description=kpi_description,
         domain=answers.get("Q4", "Unknown"),
         sources=", ".join(answers.get("Q6", []) or [])
-    )
+    ) + benchmark_ctx
     raw = _call_claude(prompt)
     return _parse_llm_questions(raw, parent_id="Q11")
 
@@ -232,11 +243,12 @@ def generate_roi_followups(
     answers: Dict[str, Any]
 ) -> List[DynamicQuestion]:
     """Generates follow-up questions after Q24 (manual process description)."""
+    benchmark_ctx = _get_benchmark_context(answers)
     prompt = PROMPT_TEMPLATES["Q24_roi_followup"].format(
         manual_process=manual_process,
         domain=answers.get("Q4", "Unknown"),
         sources=", ".join(answers.get("Q6", []) or [])
-    )
+    ) + benchmark_ctx
     raw = _call_claude(prompt)
     return _parse_llm_questions(raw, parent_id="Q24")
 
@@ -260,13 +272,14 @@ def generate_governance_questions(answers: Dict[str, Any]) -> List[DynamicQuesti
     """Generates data governance questions after Phase 3 is complete."""
     from smart_intake.conditional_engine import detect_compliance_flags
     flags = detect_compliance_flags(answers)
+    benchmark_ctx = _get_benchmark_context(answers)
     prompt = PROMPT_TEMPLATES["post_phase3_governance"].format(
         domain=answers.get("Q4", "Unknown"),
         regions=", ".join(answers.get("Q3", []) or []),
         compliance_flags=", ".join(f.value for f in flags),
         volume=answers.get("Q7", "Unknown"),
         sources=", ".join(answers.get("Q6", []) or [])
-    )
+    ) + benchmark_ctx
     raw = _call_claude(prompt)
     return _parse_llm_questions(raw, parent_id="phase_3_end")
 

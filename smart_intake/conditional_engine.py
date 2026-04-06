@@ -143,16 +143,36 @@ COMPLIANCE_DEV_OVERHEAD: Dict[str, int] = {
 def auto_fill_values(answers: Dict[str, Any]) -> Dict[str, Any]:
     """
     Returns a dict of {question_id: auto_filled_value} based on current answers.
+    Blends formula-based estimates with historical benchmark data when available.
     UI should pre-populate these fields (user can override).
     """
     filled = {}
 
-    # Q34: Infrastructure cost
+    # ── Pull historical benchmark (blended into estimates) ──
+    benchmark = None
+    try:
+        from smart_intake.rag_engine import get_benchmark_stats
+        benchmark = get_benchmark_stats(answers)
+    except Exception:
+        pass
+
+    # Q34: Infrastructure cost — blend formula + historical avg
     volume = answers.get("Q7", "")
     platform = answers.get("Q21", "default")
+    formula_infra = None
     if volume and volume in INFRA_COST_MATRIX:
         row = INFRA_COST_MATRIX[volume]
-        filled["Q34"] = row.get(platform, row["default"])
+        formula_infra = row.get(platform, row["default"])
+
+    if formula_infra is not None:
+        if benchmark and benchmark.get("avg_infra_monthly"):
+            # 60% formula, 40% historical — historical grounds the estimate
+            hist_infra = benchmark["avg_infra_monthly"]
+            filled["Q34"] = round(formula_infra * 0.60 + hist_infra * 0.40, 0)
+            filled["_q34_source"] = f"blended (formula ${formula_infra:,.0f} + historical avg ${hist_infra:,.0f})"
+        else:
+            filled["Q34"] = formula_infra
+            filled["_q34_source"] = "formula"
 
     # Q35: Dev weeks = base(entities) + quality overhead + compliance overhead
     entities = answers.get("Q9")
@@ -162,7 +182,16 @@ def auto_fill_values(answers: Dict[str, Any]) -> Dict[str, Any]:
         dq_overhead = len([x for x in dq_issues if x != "No known issues"]) * 1
         flags = detect_compliance_flags(answers)
         comp_overhead = sum(COMPLIANCE_DEV_OVERHEAD.get(f.value, 0) for f in flags)
-        filled["Q35"] = base_weeks + dq_overhead + comp_overhead
+        formula_weeks = base_weeks + dq_overhead + comp_overhead
+
+        if benchmark and benchmark.get("avg_dev_weeks"):
+            # 50/50 blend — historical effort is strong signal
+            hist_weeks = benchmark["avg_dev_weeks"]
+            filled["Q35"] = round(formula_weeks * 0.50 + hist_weeks * 0.50, 1)
+            filled["_q35_source"] = f"blended (formula {formula_weeks}wk + historical avg {hist_weeks}wk)"
+        else:
+            filled["Q35"] = formula_weeks
+            filled["_q35_source"] = "formula"
 
     # Q39: Total impl cost
     infra_monthly = filled.get("Q34") or answers.get("Q34", 0)
@@ -171,14 +200,30 @@ def auto_fill_values(answers: Dict[str, Any]) -> Dict[str, Any]:
     licensing = answers.get("Q37", 0) or 0
     dev_cost = float(dev_weeks) * 40 * float(dev_rate)
     infra_setup = float(infra_monthly) * 3  # 3-month ramp
-    filled["Q39"] = round(dev_cost + infra_setup + float(licensing), 2)
+    formula_impl = round(dev_cost + infra_setup + float(licensing), 2)
+
+    if benchmark and benchmark.get("avg_impl_cost"):
+        hist_impl = benchmark["avg_impl_cost"]
+        filled["Q39"] = round(formula_impl * 0.60 + hist_impl * 0.40, 2)
+        filled["_q39_source"] = f"blended (formula ${formula_impl:,.0f} + historical avg ${hist_impl:,.0f})"
+    else:
+        filled["Q39"] = formula_impl
+        filled["_q39_source"] = "formula"
 
     # Q40: 3-year TCO
     impl_cost = filled.get("Q39") or answers.get("Q39", 0)
     annual_infra = float(infra_monthly) * 12 if infra_monthly else 0
     support_pct = float(answers.get("Q38", 18)) / 100
     annual_support = float(impl_cost) * support_pct
-    filled["Q40"] = round(float(impl_cost) + (annual_infra + annual_support) * 3, 2)
+    formula_tco = round(float(impl_cost) + (annual_infra + annual_support) * 3, 2)
+
+    if benchmark and benchmark.get("avg_tco_3yr"):
+        hist_tco = benchmark["avg_tco_3yr"]
+        filled["Q40"] = round(formula_tco * 0.60 + hist_tco * 0.40, 2)
+        filled["_q40_source"] = f"blended (formula ${formula_tco:,.0f} + historical avg ${hist_tco:,.0f})"
+    else:
+        filled["Q40"] = formula_tco
+        filled["_q40_source"] = "formula"
 
     # Q41: Net 3yr ROI %
     tco = filled.get("Q40") or answers.get("Q40", 0)
@@ -196,6 +241,16 @@ def auto_fill_values(answers: Dict[str, Any]) -> Dict[str, Any]:
         annual_benefit = annual_labor + error_savings + license_savings + revenue_uplift
         three_yr_benefit = annual_benefit * 3
         filled["Q41"] = round(((three_yr_benefit - float(tco)) / float(tco)) * 100, 1) if tco else 0
+
+    # Store benchmark reference for display in session
+    if benchmark:
+        filled["_benchmark"] = {
+            "similar_count":   benchmark["similar_count"],
+            "project_names":   benchmark["project_names"],
+            "avg_roi_pct":     benchmark.get("avg_roi_pct"),
+            "avg_dps_score":   benchmark.get("avg_dps_score"),
+            "lessons":         benchmark.get("lessons", []),
+        }
 
     return filled
 
