@@ -6,3 +6,4 @@ profiling_output/
 .env
 query_log.jsonl
 feedback_cache.json
+intake_*.json
